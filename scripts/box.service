@@ -1,0 +1,220 @@
+#!/system/bin/sh
+
+scripts=$(realpath $0)
+scripts_dir=$(dirname ${scripts})
+source /data/adb/box/settings.ini
+
+still_alive() {
+  box_pid_file=/data/adb/box/run/box.pid
+  PIDs=$(cat "${box_pid_file}" 2> /dev/null)
+
+  if [ -z "${PIDs}" ]; then
+    log error "${bin_name} service is not running. ${box_pid_file} not found."
+    exit 1
+  fi
+
+  for PID in ${PIDs}; do
+    if [ ! -e "/proc/${PID}" ] || ! grep -q "${bin_name}" "/proc/${PID}/cmdline"; then
+      log error "${bin_name} service is not running. Please, check ${bin_name}.log"
+      kill -9 "${PID}" && \
+        log info "${bin_name} has stopped."
+      rm -rf "${box_pid_file}"
+      exit 1
+    fi
+  done
+
+  return 0
+}
+
+check_permission() {
+    # Set permissions variables
+    file_perms="6755"
+    dir_perms="0755"
+
+    # Set owner and permissions for binary file
+    if chown ${box_user_group} ${bin_path} && chmod ${file_perms} ${bin_path}; then
+        log info "Set owner and permissions for ${bin_path} successfully."
+    else
+        log error "Failed to set owner and permissions for ${bin_path}."
+        exit 1
+    fi
+
+    # Set owner and permissions for data directory recursively
+    if chown -R ${box_user_group} ${data_dir} && chmod -R ${dir_perms} ${data_dir}; then
+        log info "Set owner and permissions for ${data_dir} and its contents successfully."
+    else
+        log error "Failed to set owner and permissions for ${data_dir} and its contents."
+        exit 1
+    fi
+
+    # Log informational message
+    log info "Using kernel directory ${bin_name} in ${bin_path}"
+}
+
+create_tun() {
+  # Mengaktifkan IP forwarding
+  sysctl net.ipv4.ip_forward=1 >/dev/null 2>&1
+  # Membuat symlink untuk /dev/tun jika belum ada
+  if [ ! -c "/dev/net/tun" ]; then
+    if ! mkdir -p /dev/net; then
+      log info "Cannot create directory /dev/net" >&2
+    fi
+    if ! mknod /dev/net/tun c 10 200; then
+      log warn "Cannot create /dev/net/tun. Possible reasons:"
+      log warn " This script is not executed as root user."
+      log warn " Your system does not support the TUN/TAP driver."
+      log warn " Your system kernel version is not compatible with the TUN/TAP driver." >&2
+    fi
+  fi
+}
+
+check_in_bin() {
+  if ! command -v "${bin_path}" >/dev/null 2>&1; then
+    log error "Error: '${bin_path}' not found or not executable."
+    exit 1
+  fi
+
+  if [ ! -f "${bin_path}" ] || [ ! -x "${bin_path}" ]; then
+    log error "Error: '${bin_path}' is not a valid file or cannot be executed."
+    exit 1
+  fi
+
+  case "${bin_name}" in
+    clash)
+      if ! "${bin_path}" -v >/dev/null 2>&1; then
+        log error "Error: '${bin_name}' version information not available."
+        exit 1
+      fi
+      log info "$(${bin_path} -v)";;
+    *)
+      if ! "${bin_path}" version >/dev/null 2>&1; then
+        echo "Error: '${bin_name}' version information not available."
+        exit 1
+      fi
+      log info "$(${bin_path} version)";;
+  esac
+}
+
+run_box() {
+  log info "client list: ${bin_list[*]}"
+  log info "select: ${bin_name}"
+  log info "starting ${bin_name} service."
+  ulimit -SHn 1000000
+  case "${bin_name}" in
+    sing-box)
+      if "${bin_path}" check -D "${data_dir}/${bin_name}" > "${run_path}/${bin_name}-report.log" 2>&1 ; then
+        nohup setuidgid 0:3005 "${bin_path}" run -D "${data_dir}/${bin_name}" > /dev/null 2>&1 &
+        echo -n $! > "${pid_file}"
+      else
+        log error "configuration failed, please check the ${run_path}/${bin_name}-report.log file."
+        exit 1
+      fi
+      ;;
+    clash)
+      if "${bin_path}" -t -d "${data_dir}/${bin_name}" -f "${data_dir}/clash/config.yaml" > "${run_path}/${bin_name}-report.log" ; then
+        nohup setuidgid 0:3005 "${bin_path}" -d "${data_dir}/${bin_name}" -f "${data_dir}/clash/config.yaml" > /dev/null 2>&1 &
+        echo -n "$!" > "${pid_file}"
+      else
+        log error "configuration failed, please check the ${run_path}/${bin_name}-report.log file."
+        exit 1
+      fi
+      ;;
+    xray)
+      if [ ! -f "${data_dir}/${bin_name}"/*.json ] ; then
+        log error "file ${data_dir}/${bin_name}/*.json not found"
+        exit 1
+      fi
+      export XRAY_LOCATION_ASSET="${data_dir}/${bin_name}"
+      export XRAY_LOCATION_CONFDIR="${data_dir}/${bin_name}"
+      if "${bin_path}" -test > "${run_path}/${bin_name}-report.log" 2>&1 ; then
+        nohup setuidgid 0:3005 "${bin_path}" > /dev/null 2>&1 &
+        echo -n "$!" > "${pid_file}"
+      else
+        log error "configuration failed, please check the ${run_path}/${bin_name}-report.log file." 
+        exit 1
+      fi
+    ;;
+    v2fly)
+      if [ ! -f "${data_dir}/${bin_name}"/*.json ] ; then
+        log error "file ${data_dir}/${bin_name}/*.json not found"
+        exit 1
+      fi
+      export V2RAY_LOCATION_ASSET="${data_dir}/${bin_name}"
+      export V2RAY_LOCATION_CONFDIR="${data_dir}/${bin_name}"
+      if "${bin_path}" test > "${run_path}/${bin_name}-report.log" 2>&1 ; then
+        nohup setuidgid 0:3005 "${bin_path}" run > /dev/null 2>&1 &
+        echo -n "$!" > "${pid_file}"
+      else
+        log error "configuration failed, please check the ${run_path}/${bin_name}-report.log file." 
+        exit 1
+      fi
+      ;;
+    *)
+      log error "kernel error, ${bin_name} write is wrong."
+      exit 1
+      ;;
+  esac
+  rm -rf ${run_path}/${bin_name}-report.log
+}
+
+display_bin_pid() {
+  if still_alive ; then
+    log info "${bin_name} service is running. (PID: $(cat /data/adb/box/run/box.pid))."
+  else
+    log warn "${bin_name} service is stopped." && return 1
+  fi
+}
+
+start_box() {
+  echo -n "" > "${logs_file}"
+  if [ -t 1 ]; then
+    echo -e "\033[1;31m$(date)\033[0m"
+    echo -e "\033[1;32m--------------------------------------------\033[0m"
+  else
+    echo "$(date)" | tee -a "${logs_file}" >> /dev/null 2>&1
+    echo "--------------------------------------------" | tee -a "${logs_file}" >> /dev/null 2>&1
+  fi
+  
+  check_in_bin
+  
+  box_pid_file="/data/adb/box/run/box.pid"
+  PIDs="$(cat "${box_pid_file}" 2> /dev/null)"
+  
+  if (cat /proc/"${PIDs}"/cmdline | grep -q "$bin_name") ; then
+    log info "${bin_name} service is still running, refreshing iptables..."
+    "${scripts_dir}"/box.iptables renew
+    exit 1
+  fi
+  
+  check_permission
+  create_tun
+  run_box
+  still_alive
+  display_bin_pid
+}
+
+stop_box() {
+  box_pid_file="/data/adb/box/run/box.pid"
+  
+  if [ -f "${box_pid_file}" ]; then
+    PIDs="$(cat "${box_pid_file}")"
+    kill -9 "${PIDs}" || killall -9 "${bin_name}"
+    log info "${bin_name} has stopped."
+    rm -f "${box_pid_file}"
+  else
+    log warn "${bin_name} is not running."
+  fi
+}
+
+case "$1" in
+  start)
+    stop_box >> /dev/null 2>&1
+    start_box
+    ;;
+  stop)
+    stop_box
+    ;;
+  *)
+    echo "$0:  usage: $0 {start|stop}"
+    ;;
+esac
