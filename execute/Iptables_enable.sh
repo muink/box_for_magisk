@@ -1,4 +1,4 @@
-#!/system/xbin/sh
+#!/system/bin/sh
 
 data_dir="/data/adb/box"
 run_path="${data_dir}/run"

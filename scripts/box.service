@@ -103,7 +103,7 @@ run_box() {
   case "${bin_name}" in
     sing-box)
       if "${bin_path}" check -D "${data_dir}/${bin_name}" > "${run_path}/${bin_name}-report.log" 2>&1 ; then
-        nohup setuidgid 0:3005 "${bin_path}" run -D "${data_dir}/${bin_name}" > /dev/null 2>&1 &
+        nohup setuidgid 0:3005 "${bin_path}" run -D "${data_dir}/${bin_name}" > "${run_path}/${bin_name}.log" 2>&1 &
         echo -n $! > "${pid_file}"
       else
         log error "configuration failed, please check the ${run_path}/${bin_name}-report.log file."
@@ -112,7 +112,7 @@ run_box() {
       ;;
     clash)
       if "${bin_path}" -t -d "${data_dir}/${bin_name}" -f "${data_dir}/clash/config.yaml" > "${run_path}/${bin_name}-report.log" ; then
-        nohup setuidgid 0:3005 "${bin_path}" -d "${data_dir}/${bin_name}" -f "${data_dir}/clash/config.yaml" > /dev/null 2>&1 &
+        nohup setuidgid 0:3005 "${bin_path}" -d "${data_dir}/${bin_name}" -f "${data_dir}/clash/config.yaml" > "${run_path}/${bin_name}.log" 2>&1 &
         echo -n "$!" > "${pid_file}"
       else
         log error "configuration failed, please check the ${run_path}/${bin_name}-report.log file."
@@ -127,7 +127,7 @@ run_box() {
       export XRAY_LOCATION_ASSET="${data_dir}/${bin_name}"
       export XRAY_LOCATION_CONFDIR="${data_dir}/${bin_name}"
       if "${bin_path}" -test > "${run_path}/${bin_name}-report.log" 2>&1 ; then
-        nohup setuidgid 0:3005 "${bin_path}" > /dev/null 2>&1 &
+        nohup setuidgid 0:3005 "${bin_path}" > "${run_path}/${bin_name}.log" 2>&1 &
         echo -n "$!" > "${pid_file}"
       else
         log error "configuration failed, please check the ${run_path}/${bin_name}-report.log file." 
@@ -142,7 +142,7 @@ run_box() {
       export V2RAY_LOCATION_ASSET="${data_dir}/${bin_name}"
       export V2RAY_LOCATION_CONFDIR="${data_dir}/${bin_name}"
       if "${bin_path}" test > "${run_path}/${bin_name}-report.log" 2>&1 ; then
-        nohup setuidgid 0:3005 "${bin_path}" run > /dev/null 2>&1 &
+        nohup setuidgid 0:3005 "${bin_path}" run > "${run_path}/${bin_name}.log" 2>&1 &
         echo -n "$!" > "${pid_file}"
       else
         log error "configuration failed, please check the ${run_path}/${bin_name}-report.log file." 
